@@ -22,6 +22,7 @@ jobs:
         with:
           context: .
           target: sso
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/ayasmyslov/sso:latest
 
@@ -31,4 +32,5 @@ jobs:
           context: .
           target: migrate
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ghcr.io/ayasmyslov/sso-migrate:latest
