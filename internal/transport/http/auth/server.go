@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/AYaSmyslov/sso/internal/services/auth"
 )
@@ -66,6 +67,7 @@ func (s *serverAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *serverAPI) routes() {
 	s.mux.HandleFunc("POST /login", s.login)
 	s.mux.HandleFunc("POST /register", s.register)
+	s.mux.HandleFunc("GET /is-admin", s.isAdmin)
 }
 
 func (s *serverAPI) login(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +120,33 @@ func (s *serverAPI) register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]int64{"user_id": userID})
+}
+
+func (s *serverAPI) isAdmin(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	raw := r.URL.Query().Get("user_id")
+	if raw == "" {
+		writeError(w, http.StatusBadRequest, "user_id is required")
+		return
+	}
+	userID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || userID == emptyValue {
+		writeError(w, http.StatusBadRequest, "user_id must be a positive integer")
+		return
+	}
+
+	isAdmin, err := s.auth.IsAdmin(ctx, userID)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]bool{"is_admin": isAdmin})
 }
 
 func validateLogin(w http.ResponseWriter, inputLogin InputLogin) bool {
