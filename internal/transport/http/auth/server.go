@@ -23,6 +23,13 @@ type Auth interface {
 		password string,
 	) (userID int64, err error)
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
+	ChangePassword(
+		ctx context.Context,
+		userID int64,
+		oldPassword string,
+		newPassword string,
+	) error
+	AppSecret(ctx context.Context, appID int) ([]byte, error)
 }
 
 type InputLogin struct {
@@ -34,6 +41,11 @@ type InputLogin struct {
 type InputRegister struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type InputChangePassword struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
 }
 
 const (
@@ -68,6 +80,7 @@ func (s *serverAPI) routes() {
 	s.mux.HandleFunc("POST /login", s.login)
 	s.mux.HandleFunc("POST /register", s.register)
 	s.mux.HandleFunc("GET /is-admin", s.isAdmin)
+	s.mux.HandleFunc("POST /change-password", s.requireAuth(s.changePassword))
 }
 
 func (s *serverAPI) login(w http.ResponseWriter, r *http.Request) {
@@ -122,6 +135,42 @@ func (s *serverAPI) register(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]int64{"user_id": userID})
 }
 
+func (s *serverAPI) changePassword(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	userID, ok := userIDFromContext(ctx)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	var input InputChangePassword
+	if err := readJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if !validateChangePassword(w, input) {
+		return
+	}
+
+	err := s.auth.ChangePassword(ctx, userID, input.OldPassword, input.NewPassword)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			writeError(w, http.StatusUnauthorized, "invalid old password")
+			return
+		}
+		if errors.Is(err, auth.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *serverAPI) isAdmin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -173,6 +222,18 @@ func validateRegister(w http.ResponseWriter, inputRegister InputRegister) bool {
 	}
 	if inputRegister.Password == "" {
 		writeError(w, http.StatusBadRequest, "password is required")
+		return false
+	}
+	return true
+}
+
+func validateChangePassword(w http.ResponseWriter, input InputChangePassword) bool {
+	if input.OldPassword == "" {
+		writeError(w, http.StatusBadRequest, "old_password is required")
+		return false
+	}
+	if input.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "new_password is required")
 		return false
 	}
 	return true
